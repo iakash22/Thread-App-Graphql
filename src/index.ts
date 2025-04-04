@@ -1,7 +1,7 @@
 import express from 'express';
-import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
-import { prismaClient } from './lib/db';
+import graphqlServer from './graphql';
+import UserService from './services/user';
 
 async function init() {
     const app = express();
@@ -9,47 +9,24 @@ async function init() {
 
     app.use(express.json());
 
-    const server = new ApolloServer({
-        typeDefs: `
-            type Query {
-                hello : String
-                say(name :String) : String 
-            }
-            type Mutation {
-                createUser(firstName : String!,lastName: String!, email:String!, password: String!) : Boolean
-            }
-        `,
-        resolvers: {
-            Query: {
-                hello: () => "Hello from GraphQL!",
-                say: (_, { name }: { name: string }) => `Hey ${name}, How are you.`
-            },
-            Mutation: {
-                createUser: async (_,
-                    { firstName, lastName, email, password }: { firstName: string, lastName: string, email: string, password: string }) => {
-                    await prismaClient.user.create({
-                        data: {
-                            email,
-                            firstName,
-                            lastName,
-                            password,
-                            salt: "random_salt"
-                        }
-                    })
-
-                    return true;
-                }
-            }
-        }
-    });
-
-    await server.start();
-
     app.get('/', (req, res) => {
         res.send("Hello From Server.");
     });
 
-    app.use("/graphql", expressMiddleware(server));
+    app.use(
+        "/graphql",
+        expressMiddleware(
+            await graphqlServer(),
+            {
+                context: async ({ req }) => {
+                    const token = req.headers['authorization'];
+                    try {
+                        const user = UserService.decodeJWTToken(token as string);
+                        return { user };
+                    } catch (error) {
+                        return {};
+                    }
+            } }));
 
     app.listen(PORT, () => {
         console.log(`Listen on Port ${PORT}`);
